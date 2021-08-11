@@ -28,11 +28,13 @@ global_cases <- read_csv(urls[2])
 us_deaths <- read_csv(urls[3])
 global_deaths <- read_csv(urls[4])
 global_recovered <- read_csv(urls[5])
+
 #Adding global population data from Johns Hopkins University
 uid_lookup_url <- 'https://raw.githubusercontent.com/CSSEGISandData/COVID-19/master/csse_covid_19_data/UID_ISO_FIPS_LookUp_Table.csv'
 uid <- read_csv(uid_lookup_url) %>%
   select(-c(UID, iso2, iso3, code3, FIPS, Admin2, Lat, Long_, Combined_Key)) %>%
   rename(country_region = Country_Region, province_state = Province_State, population = Population)
+
 #Adding in vaccine data from University of Oxford
 url_in <- 'https://raw.githubusercontent.com/owid/covid-19-data/master/public/data/vaccinations/vaccinations.csv'
 vaccine <- read_csv(url_in)
@@ -49,6 +51,7 @@ global_cases <- global_cases %>%
                values_to = 'cases') %>%
   select(-c(Lat, Long)) %>%
   rename(province_state = 'Province/State', country_region = 'Country/Region')
+
 #Global deaths
 global_deaths <- global_deaths %>%
   pivot_longer(cols = -c('Province/State', 'Country/Region', Lat, Long),
@@ -87,6 +90,7 @@ us <- us_cases %>%
   full_join(us_deaths) %>%
   mutate(date = mdy(date)) %>%
   filter(cases > 0)
+
 #Making Us by state
 us_by_state <- us %>%
   group_by(province_state, country_region, date) %>%
@@ -95,6 +99,7 @@ us_by_state <- us %>%
   mutate(deaths_per_mil = deaths * 1000000 / population, cases_per_mil = cases * 1000000 / population) %>%
   select(province_state, country_region, date, cases, cases_per_mil, deaths_per_mil, population, deaths) %>%
   ungroup()
+
 #US totals
 us_totals <- us_by_state %>%
   group_by(country_region, date) %>%
@@ -106,11 +111,13 @@ us_totals <- us_by_state %>%
          new_deaths = deaths - lag(deaths)) %>%
   select(country_region, date, cases, deaths, new_cases, new_deaths, deaths_per_mil, cases_per_mil, population) %>%
   ungroup()
+
 #Adding new cases and new deaths per million
 us_totals <- us_totals %>%
   mutate(new_cases_per_mil = new_cases * 1000000 / population, 
          new_deaths_per_mil = new_deaths * 1000000 / population) %>%
   select(everything())
+
 #Global by country
 global_by_country <- global %>%
   group_by(country_region, province_state, date) %>%
@@ -118,6 +125,7 @@ global_by_country <- global %>%
   mutate(deaths_per_mil = deaths * 1000000 / population, cases_per_mil = cases * 1000000 / population) %>%
   select(country_region, province_state, date, cases, cases_per_mil, deaths, deaths_per_mil, population) %>%
   ungroup()
+
 #Getting Sweden data
 sweden <- global_by_country %>%
   filter(country_region == 'Sweden') %>%
@@ -128,10 +136,12 @@ sweden <- sweden %>%
   mutate(new_cases_per_mil = new_cases * 1000000 / population, 
          new_deaths_per_mil = new_deaths * 1000000 / population) %>%
   select(-c(province_state))
+
 #Getting Sweden's vaccine data
 sweden_vac <- vaccine %>%
   filter(location == 'Sweden') %>%
   mutate(date = ymd(date))
+
 #Getting USA's vaccine data
 usa_vac <- vaccine %>%
   filter(location == 'United States') %>%
@@ -171,6 +181,7 @@ us_totals %>%
        x = 'Date', y = 'Deaths and Cases per Million')  +
   scale_x_date(date_labels = '%m-%Y', date_breaks = '2 month') +
   theme(axis.text.x = element_text(angle = 330))
+
 #US new cases and new deaths per million
 us_totals %>%
   ggplot() +
@@ -180,6 +191,7 @@ us_totals %>%
   labs(title = 'United States New Cases and New Deaths per Million', x = 'Date', y = 'New Cases and Deaths per Mil Scaled by Log 10') +
   scale_x_date(date_labels = '%m-%Y', date_breaks = '2 month') +
   theme(axis.text.x = element_text(angle = 330))
+
 #Comparison of Swedish and US  cases and deaths per million
 ggplot() +
   geom_line(data = sweden, aes(x = date, y = deaths_per_mil, color = 'Swedish Deaths per Mil')) +
@@ -190,6 +202,7 @@ ggplot() +
   labs(title = 'Swedish and United States Cases and Deaths per Million',  x = 'Date', y = 'Value per Million Scaled by Log Base 10') +
   scale_x_date(date_labels = '%m-%Y', date_breaks = '2 month') +
   theme(axis.text.x = element_text(angle = 330))
+
 #Graph showing new cases and deaths (per million) in US and Sweden
 ggplot() +
   geom_point(data = sweden %>% filter(new_deaths_per_mil > 0), aes(x = date, y = new_deaths_per_mil, color = 'Swedish New Deaths'), alpha = 0.4) +
@@ -200,6 +213,7 @@ ggplot() +
   labs(title = 'Swedish and United States Cases New Cases and New Deaths',  x = 'Date', y = 'New Cases and Deaths per Mil Scaled by Log 10') +
   scale_x_date(date_labels = '%m-%Y', date_breaks = '2 month') +
   theme(axis.text.x = element_text(angle = 330))
+
 #Graph highlighting Sweden vaccinations
 sweden_vac %>%
   ggplot() + 
@@ -209,6 +223,7 @@ sweden_vac %>%
   scale_x_date(date_labels = '%m-%Y', date_breaks = '1 month') +
   theme(axis.text.x = element_text(angle = 330)) + 
   labs(title = 'Swedish Total Vaccines and People Vaccinated per Hundred', x = 'Date', y = 'Count')
+
 #Graph detailing USA vaccinations
 usa_vac %>%
   ggplot() + 
@@ -218,6 +233,7 @@ usa_vac %>%
 scale_x_date(date_labels = '%m-%Y', date_breaks = '1 month') +
   theme(axis.text.x = element_text(angle = 330)) + 
   labs(title = 'USA Total Vaccines and People Vaccinated per Hundred', x = 'Date', y = 'Count')
+
 #Comparison of Swedish and USA vaccines
 ggplot() + 
   geom_point(data = sweden_vac, aes(x = date, y = total_vaccinations_per_hundred, color = 'Swedish Total Vaccines'), na.rm = TRUE) +
@@ -229,6 +245,7 @@ ggplot() +
 scale_x_date(date_labels = '%m-%Y', date_breaks = '1 month') +
   theme(axis.text.x = element_text(angle = 330)) + 
   labs(title = 'Sweden and USA Vaccine Data Per Hundred', x = 'Date', y = 'Count')
+
 #Graph of new vaccinations for USA
 usa_vac %>%
   ggplot() +
@@ -250,6 +267,7 @@ sweden %>%
   geom_point(aes(x = cases_per_mil, y = deaths_per_mil, color = 'Actual Deaths per Million')) + 
   geom_point(aes(x = cases_per_mil, y = pred_deaths_per_mil, color = 'Predicted Deaths per Million')) +
   labs(title = 'Swedish Deaths per Million as a Function of Cases per Million', x = 'Cases per Million', y = 'Deaths per Million')
+
 #us model of deaths and cases per mil to predict death per mil
 us_deaths_model <- lm(deaths_per_mil ~ cases_per_mil, data = us_totals)
 summary(us_deaths_model)
@@ -274,6 +292,7 @@ sweden %>%
   labs(title = 'Swedish Cases per Million as a Function of Date', x = 'Date', y = 'Count') +
   scale_x_date(date_labels = '%m-%Y', date_breaks = '2 month') +
   theme(axis.text.x = element_text(angle = 330))
+
 #Sweden deaths and date
 sweden_death_date_model <- lm(deaths_per_mil ~ date, data = sweden)
 summary(sweden_death_date_model)
@@ -287,11 +306,13 @@ sweden %>%
   labs(title = 'Swedish Deaths per Million as a Function of Date', x = 'Date', y = 'Count') +
   scale_x_date(date_labels = '%m-%Y', date_breaks = '2 month') +
   theme(axis.text.x = element_text(angle = 330))
-#US cases and date
+
+#US cases and date model
 us_case_date_model <- lm(cases_per_mil ~ date, data = us_totals)
 summary(us_case_date_model)
 us_totals <- us_totals %>%
   mutate(pred_cases_per_mil_date = predict(us_case_date_model))
+#Plotting model
 us_totals %>%
   filter(pred_cases_per_mil_date >= 0) %>%
   ggplot() +
@@ -300,8 +321,10 @@ us_totals %>%
   labs(title = 'American Cases per Million as a Function of Date', x = 'Date', y = 'Count') +
   scale_x_date(date_labels = '%m-%Y', date_breaks = '2 month') +
   theme(axis.text.x = element_text(angle = 330))
+#Model for us death_per_mil and date
 us_death_date_model <- lm(deaths_per_mil ~ date, data = us_totals)
 summary(us_death_date_model)
+#plotting model
 us_totals <- us_totals %>%
   mutate(pred_deaths_per_mil_date = predict(us_death_date_model))
 us_totals %>%
