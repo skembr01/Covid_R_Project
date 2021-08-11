@@ -1,0 +1,313 @@
+---
+title: "Data Science as a Field Final R Project"
+author: "Sam E."
+date: "8/10/2021"
+output: html_document
+---
+```{r, message = FALSE}
+library(tidyverse)
+library(lubridate)
+```
+
+# Covid Data From Johns Hopkins University
+This data from Johns Hopkins University covers COVID-19 cases and deaths in both the United States and globally. The data is aggregated from a variety of sources such as the World Health Organization, the Centers for Disease Control, and the European Centre for Disease Prevention and Control. The data is continuing to be updated daily, but the data in this project ends at the time the project was started. Additionally, vaccination data from the University of Oxford's Our World in Data is used. The Github repository for the Johns Hopkins University data is: https://github.com/CSSEGISandData/COVID-19/tree/master/csse_covid_19_data/csse_covid_19_time_series, while the University of Oxford data can be found at: https://ourworldindata.org/covid-vaccinations. 
+
+# Importing the Data
+```{r importing data, message = FALSE}
+#Adding JHU's COVID data
+url_in <- 'https://raw.githubusercontent.com/CSSEGISandData/COVID-19/master/csse_covid_19_data/csse_covid_19_time_series/'
+file_names <- 
+  c('time_series_covid19_confirmed_US.csv',
+    'time_series_covid19_confirmed_global.csv',
+    'time_series_covid19_deaths_US.csv',
+    'time_series_covid19_deaths_global.csv',
+    'time_series_covid19_recovered_global.csv')
+urls <- str_c(url_in, file_names)
+us_cases <- read_csv(urls[1])
+global_cases <- read_csv(urls[2])
+us_deaths <- read_csv(urls[3])
+global_deaths <- read_csv(urls[4])
+global_recovered <- read_csv(urls[5])
+#Adding global population data from Johns Hopkins University
+uid_lookup_url <- 'https://raw.githubusercontent.com/CSSEGISandData/COVID-19/master/csse_covid_19_data/UID_ISO_FIPS_LookUp_Table.csv'
+uid <- read_csv(uid_lookup_url) %>%
+  select(-c(UID, iso2, iso3, code3, FIPS, Admin2, Lat, Long_, Combined_Key)) %>%
+  rename(country_region = Country_Region, province_state = Province_State, population = Population)
+#Adding in vaccine data from University of Oxford
+url_in <- 'https://raw.githubusercontent.com/owid/covid-19-data/master/public/data/vaccinations/vaccinations.csv'
+vaccine <- read_csv(url_in)
+```
+
+# Tidying the Data
+The data is then tidied in a way to make the data easier to use. To tidy the data, the datasets were reformatted, certain column values were dropped, column names were edited, and datasets for the combination of data concerning each of the USA and globally were created. 
+```{r tidying, message = FALSE, warning=FALSE}
+#Changing data occurrences into rows, not columns and dropping Lat/Long
+#Global cases
+global_cases <- global_cases %>%
+  pivot_longer(cols = -c('Province/State', 'Country/Region', Lat, Long),
+               names_to = 'date',
+               values_to = 'cases') %>%
+  select(-c(Lat, Long)) %>%
+  rename(province_state = 'Province/State', country_region = 'Country/Region')
+#Global deaths
+global_deaths <- global_deaths %>%
+  pivot_longer(cols = -c('Province/State', 'Country/Region', Lat, Long),
+               names_to = 'date',
+               values_to = 'deaths') %>%
+  select(-c(Lat, Long)) %>%
+  rename(province_state = 'Province/State', country_region = 'Country/Region')
+
+#Combining global cases and global deaths
+global <- global_cases %>%
+  full_join(global_deaths) %>% 
+  mutate(date = mdy(date)) %>%
+  filter(cases > 0)
+global <- global %>%
+  left_join(uid, by = c('province_state', 'country_region')) %>%
+  select(province_state, country_region, date, cases, deaths, population)
+  
+#US cases
+us_cases <- us_cases %>%
+  pivot_longer(cols = -c(UID, 'iso2', 'iso3', code3, 'Admin2', FIPS, 'Province_State', 'Country_Region', Lat, Long_, 'Combined_Key'),
+               names_to = 'date',
+               values_to = 'cases') %>%
+  select(-c(UID, FIPS, code3, 'iso2', 'iso3', Lat, Long_, 'Combined_Key')) %>%
+  rename(county = Admin2, province_state = Province_State, country_region = Country_Region)
+
+#US deaths
+us_deaths <- us_deaths %>%
+  pivot_longer(cols = -c(UID, 'iso2', 'iso3', code3, FIPS, 'Admin2', 'Province_State', 'Country_Region', Lat, Long_, 'Combined_Key', Population),
+               names_to = 'date',
+               values_to = 'deaths') %>%
+  select(-c(UID, 'iso2', 'iso3', code3, FIPS, Lat, Long_, 'Combined_Key')) %>%
+  rename(county = Admin2, province_state = Province_State, country_region = Country_Region, population = Population)
+
+#Combining US cases and US deaths
+us <- us_cases %>%
+  full_join(us_deaths) %>%
+  mutate(date = mdy(date)) %>%
+  filter(cases > 0)
+#Making Us by state
+us_by_state <- us %>%
+  group_by(province_state, country_region, date) %>%
+  summarize(cases = sum(cases), deaths = sum(deaths), 
+            population = sum(population)) %>%
+  mutate(deaths_per_mil = deaths * 1000000 / population, cases_per_mil = cases * 1000000 / population) %>%
+  select(province_state, country_region, date, cases, cases_per_mil, deaths_per_mil, population, deaths) %>%
+  ungroup()
+#US totals
+us_totals <- us_by_state %>%
+  group_by(country_region, date) %>%
+  summarize(cases = sum(cases), deaths = sum(deaths),
+            population = sum(population)) %>%
+  mutate(deaths_per_mil = deaths * 1000000 / population, 
+         cases_per_mil = cases * 1000000 / population,
+         new_cases = cases - lag(cases),
+         new_deaths = deaths - lag(deaths)) %>%
+  select(country_region, date, cases, deaths, new_cases, new_deaths, deaths_per_mil, cases_per_mil, population) %>%
+  ungroup()
+#Adding new cases and new deaths per million
+us_totals <- us_totals %>%
+  mutate(new_cases_per_mil = new_cases * 1000000 / population, 
+         new_deaths_per_mil = new_deaths * 1000000 / population) %>%
+  select(everything())
+#Global by country
+global_by_country <- global %>%
+  group_by(country_region, province_state, date) %>%
+  summarise(cases = sum(cases), deaths = sum(deaths), population = sum(population)) %>%
+  mutate(deaths_per_mil = deaths * 1000000 / population, cases_per_mil = cases * 1000000 / population) %>%
+  select(country_region, province_state, date, cases, cases_per_mil, deaths, deaths_per_mil, population) %>%
+  ungroup()
+#Getting Sweden data
+sweden <- global_by_country %>%
+  filter(country_region == 'Sweden') %>%
+  mutate(new_cases = cases - lag(cases),
+         new_deaths = deaths - lag(deaths)) %>%
+  select(everything())
+sweden <- sweden %>%
+  mutate(new_cases_per_mil = new_cases * 1000000 / population, 
+         new_deaths_per_mil = new_deaths * 1000000 / population) %>%
+  select(-c(province_state))
+#Getting Sweden's vaccine data
+sweden_vac <- vaccine %>%
+  filter(location == 'Sweden') %>%
+  mutate(date = ymd(date))
+#Adding vaccination to Sweden dataframe
+sweden <- sweden %>%
+  left_join(sweden_vac, by = 'date') %>%
+  select(-c(location, iso_code, total_vaccinations, people_vaccinated, people_fully_vaccinated, daily_vaccinations_raw, daily_vaccinations, daily_vaccinations_per_million))
+#Getting USA's vaccine data
+usa_vac <- vaccine %>%
+  filter(location == 'United States') %>%
+  mutate(date = ymd(date))
+#Adding USA vaccine to us_totals
+us_totals <- us_totals %>%
+  left_join(usa_vac, by = c('date')) %>%
+  select(-c(location, iso_code, total_vaccinations, people_vaccinated, people_fully_vaccinated, daily_vaccinations_raw, daily_vaccinations, daily_vaccinations_per_million))
+```
+
+# Visualizing and Analyzing the Data
+The analysis of this project primarily concerns the COVID-19 data of the United States and Sweden. Sweden did not institute a lock down when many countries did early on in the pandemic, more can be read at https://www.newyorker.com/news/dispatch/swedens-pandemic-experiment. Given Sweden's choice, their data was compared to the United States in terms of cases, deaths, new cases and deaths, and also vaccinations. Given the size disparities of the countries, data was scaled. 
+```{r visualizing and anaylzing, message=FALSE, warning=FALSE}
+#Sweden cases and deaths per million line graph
+sweden %>%
+  ggplot() +
+  geom_line(aes(x = date, y = deaths_per_mil, color = 'deaths')) + 
+  geom_line(aes(x = date, y = cases_per_mil, color = 'cases')) +
+  scale_y_log10() +
+  labs(title = 'Swedish Cases per Million and Deaths per Million', 
+       x = 'Date', y = 'Deaths and Cases per Million') 
+sweden %>%
+  filter(new_cases_per_mil > 0 & new_deaths_per_mil > 0) %>%
+  ggplot() +
+  geom_point(aes(x = date, y = new_cases_per_mil, color = 'Cases')) +
+  geom_point(aes(x = date, y = new_deaths_per_mil, color = 'Deaths')) + 
+  scale_y_log10() + 
+  labs(title = 'Swedish New Cases and New Deaths per Million', x = 'Date', y = 'New Cases and Deaths per Mil Scaled by Log 10')
+
+#US cases and deaths per million
+us_totals %>%
+  ggplot() +
+  geom_line(aes(x = date, y = deaths_per_mil, color = 'deaths')) + 
+  geom_line(aes(x = date, y = cases_per_mil, color = 'cases')) +
+  scale_y_log10() +
+  labs(title = 'Cases per Million and Deaths per Million in United States', 
+       x = 'Date', y = 'Deaths and Cases per Million') 
+#US new cases and new deaths per million
+us_totals %>%
+  ggplot() +
+  geom_point(aes(x = date, y = new_cases_per_mil, color = 'Cases')) +
+  geom_point(aes(x = date, y = new_deaths_per_mil, color = 'Deaths')) +
+  scale_y_log10() + 
+  labs(title = 'United States New Cases and New Deaths per Million', x = 'Date', y = 'New Cases and Deaths per Mil Scaled by Log 10')
+#Comparison of Swedish and US  cases and deaths per million
+ggplot() +
+  geom_line(data = sweden, aes(x = date, y = deaths_per_mil, color = 'Swedish Deaths per Mil')) +
+  geom_line(data = sweden, aes(x = date, y = cases_per_mil, color = 'Swedish Cases per Mil')) +
+  geom_line(data = us_totals, aes(x = date, y = cases_per_mil, color = 'US Cases per Mil')) +
+  geom_line(data = us_totals, aes(x = date, y = deaths_per_mil, color = 'US Deaths per Mil')) +
+  scale_y_log10() + 
+  labs(title = 'Swedish and United States Cases and Deaths per Million',  x = 'Date', y = 'Value per Million Scaled by Log Base 10')
+
+#Graph showing new cases and deaths (per million) in US and Sweden
+ggplot() +
+  geom_point(data = sweden %>% filter(new_deaths_per_mil > 0), aes(x = date, y = new_deaths_per_mil, color = 'Swedish New Deaths'), alpha = 0.4) +
+  geom_point(data = sweden %>% filter(new_cases_per_mil > 0), aes(x = date, y = new_cases_per_mil, color = 'Swedish New Cases'), alpha = 0.4) +
+  geom_point(data = us_totals, aes(x = date, y = new_cases_per_mil, color = 'US New Cases'), alpha = 0.4) +
+  geom_point(data = us_totals, aes(x = date, y = new_deaths_per_mil, color = 'US New Deaths'), alpha = 0.4) +
+  scale_y_log10() +
+  labs(title = 'Swedish and United States Cases New Cases and New Deaths',  x = 'Date', y = 'New Cases and Deaths per Mil Scaled by Log 10')
+#Graph highlighting Sweden vaccinations
+sweden_vac %>%
+  ggplot() + 
+  geom_point(aes(x = date, y = total_vaccinations_per_hundred, color = 'Total Vaccines'), na.rm = TRUE) + 
+  geom_point(aes(x = date, y = people_fully_vaccinated_per_hundred, color = 'People Fully Vaccinated'), na.rm = TRUE) +
+  geom_point(aes(x = date, y = people_vaccinated_per_hundred, color = 'People at Least Partially Vaccinated Vaccinated'), na.rm = TRUE) +
+  scale_x_date(date_labels = '%m-%Y', date_breaks = '1 month') +
+  theme(axis.text.x = element_text(angle = 330)) + 
+  labs(title = 'Swedish Total Vaccines and People Vaccinated per Hundred', x = 'Date', y = 'Count')
+#Graph detailing USA vaccinations
+usa_vac %>%
+  ggplot() + 
+  geom_point(aes(x = date, y = total_vaccinations_per_hundred, color = 'Total Vaccines'), na.rm = TRUE) +
+  geom_point(aes(x = date, y = people_vaccinated_per_hundred, color = 'People at Least Partially Vaccinated'), na.rm = TRUE) +
+  geom_point(aes(x = date, y = people_fully_vaccinated_per_hundred, color = 'People Fully Vaccinated'), na.rm = TRUE) +
+scale_x_date(date_labels = '%m-%Y', date_breaks = '1 month') +
+  theme(axis.text.x = element_text(angle = 330)) + 
+  labs(title = 'USA Total Vaccines and People Vaccinated per Hundred', x = 'Date', y = 'Count')
+#Comparison of Swedish and USA vaccines
+ggplot() + 
+  geom_point(data = sweden_vac, aes(x = date, y = total_vaccinations_per_hundred, color = 'Swedish Total Vaccines'), na.rm = TRUE) +
+    geom_point(data = sweden_vac, aes(x = date, y = people_vaccinated_per_hundred, color = 'Swedish At Least Partially Vaccinated'), na.rm = TRUE) +
+   geom_point(data = sweden_vac, aes(x = date, y = people_fully_vaccinated_per_hundred, color = 'Swedish Fully Vaccinated'), na.rm = TRUE) +
+  geom_point(data = usa_vac, aes(x = date, y = total_vaccinations_per_hundred, color = 'American Total Vaccines'), na.rm = TRUE) +
+   geom_point(data = usa_vac, aes(x = date, y = people_vaccinated_per_hundred, color = 'American At Least Partially Vaccinated'), na.rm = TRUE) +
+  geom_point(data = usa_vac, aes(x = date, y = people_fully_vaccinated_per_hundred, color = 'American Fully Vaccinated'), na.rm = TRUE) +
+scale_x_date(date_labels = '%m-%Y', date_breaks = '1 month') +
+  theme(axis.text.x = element_text(angle = 330)) + 
+  labs(title = 'Sweden and USA Vaccine Data Per Hundred', x = 'Date', y = 'Count')
+```
+
+# Modeling
+```{r modeling, message=FALSE, warning=FALSE}
+#model of Swedish deaths and cases, then using it to predict deaths per mil
+swedish_death_model <- lm(deaths_per_mil ~ cases_per_mil, data = sweden)
+summary(swedish_death_model)
+sweden <- sweden %>%
+  mutate(pred_deaths_per_mil = predict(swedish_death_model))
+sweden %>%
+  ggplot() + 
+  geom_point(aes(x = cases_per_mil, y = deaths_per_mil, color = 'Actual Deaths per Million')) + 
+  geom_point(aes(x = cases_per_mil, y = pred_deaths_per_mil, color = 'Predicted Deaths per Million')) +
+  labs(title = 'Swedish Deaths per Million as a Function of Cases per Million', x = 'Cases per Million', y = 'Deaths per Million')
+#us model of deaths and cases per mil to predict death per mil
+us_deaths_model <- lm(deaths_per_mil ~ cases_per_mil, data = us_totals)
+summary(us_deaths_model)
+us_totals <- us_totals %>%
+  mutate(pred_deaths_per_mil = predict(us_deaths_model))
+us_totals %>%
+  ggplot() +
+  geom_point(aes(x = cases_per_mil, y = deaths_per_mil, color = 'Actual Deaths per Million')) + 
+  geom_point(aes(x = cases_per_mil, y = pred_deaths_per_mil, color = 'Predicted Deaths per Million')) +
+  labs(title = 'American Deaths per Million as a Function of Cases per Million', x = 'Cases per Million', y = 'Deaths per Million')
+
+#Sweden cases and date
+sweden_cases_model <- lm(cases_per_mil ~ date, data = sweden)
+summary(sweden_cases_model)
+sweden <- sweden %>%
+  mutate(pred_cases_per_mil_date = predict(sweden_cases_model))
+sweden %>%
+  filter(pred_cases_per_mil_date >= 0) %>%
+  ggplot() +
+  geom_point(aes(x = date, y = pred_cases_per_mil_date, color = 'Predicted Cases')) +
+  geom_point(aes(x = date, y = cases_per_mil, color = 'Actual Cases')) + 
+  labs(title = 'Swedish Cases per Million as a Function of Date', x = 'Date', y = 'Count') +
+  scale_x_date(date_labels = '%m-%Y', date_breaks = '2 month') +
+  theme(axis.text.x = element_text(angle = 330))
+#Sweden deaths and date
+sweden_death_date_model <- lm(deaths_per_mil ~ date, data = sweden)
+summary(sweden_death_date_model)
+sweden <- sweden %>%
+  mutate(pred_deaths_per_mil_date = predict(sweden_death_date_model))
+sweden %>%
+  filter(pred_deaths_per_mil_date >= 0) %>%
+  ggplot() +
+  geom_point(aes(x = date, y = pred_deaths_per_mil_date, color = 'Predicted Deaths')) +
+  geom_point(aes(x = date, y = deaths_per_mil, color = 'Actual Deaths')) + 
+  labs(title = 'Swedish Deaths per Million as a Function of Date', x = 'Date', y = 'Count') +
+  scale_x_date(date_labels = '%m-%Y', date_breaks = '2 month') +
+  theme(axis.text.x = element_text(angle = 330))
+#US cases and date
+us_case_date_model <- lm(cases_per_mil ~ date, data = us_totals)
+summary(us_case_date_model)
+us_totals <- us_totals %>%
+  mutate(pred_cases_per_mil_date = predict(us_case_date_model))
+us_totals %>%
+  filter(pred_cases_per_mil_date >= 0) %>%
+  ggplot() +
+  geom_point(aes(x = date, y = pred_cases_per_mil_date, color = 'Predicted Cases')) +
+  geom_point(aes(x = date, y = cases_per_mil, color = 'Actual Cases')) +
+  labs(title = 'American Cases per Million as a Function of Date', x = 'Date', y = 'Count') +
+  scale_x_date(date_labels = '%m-%Y', date_breaks = '2 month') +
+  theme(axis.text.x = element_text(angle = 330))
+us_death_date_model <- lm(deaths_per_mil ~ date, data = us_totals)
+summary(us_death_date_model)
+us_totals <- us_totals %>%
+  mutate(pred_deaths_per_mil_date = predict(us_death_date_model))
+us_totals %>%
+  filter(pred_deaths_per_mil_date >= 0) %>%
+  ggplot() +
+  geom_point(aes(x = date, y = pred_deaths_per_mil_date, color = 'Predicted Death')) +
+  geom_point(aes(x = date, y = deaths_per_mil, color = 'Actual Death')) +
+  labs(title = 'American Deaths per Million as a Function of Date', x = 'Date', y = 'Count') +
+  scale_x_date(date_labels = '%m-%Y', date_breaks = '2 month') +
+  theme(axis.text.x = element_text(angle = 330))
+```
+
+# Conclusion
+With this analysis it is important to discuss possible bias that may have been in this project. Firstly, I chose to analyze certain countries with possibly biased motives. I chose the USA as it is my home country, while I chose Sweden as I knew they did not impose a lock down early on in the pandemic. Further, while the data comes from reputable sources, I cannot attest as to how the data is collected. Thus, there may be possible bias in this data collection. 
+
+In conclusion, this project utilized data from Johns Hopkins University and the University of Oxford. These data were tidied to use for analysis, visualization, and modeling to compare the COVID-19 pandemic for the United States and Sweden.
+``` {r ending}
+sessionInfo()
+```
