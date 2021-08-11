@@ -132,18 +132,10 @@ sweden <- sweden %>%
 sweden_vac <- vaccine %>%
   filter(location == 'Sweden') %>%
   mutate(date = ymd(date))
-#Adding vaccination to Sweden dataframe
-sweden <- sweden %>%
-  left_join(sweden_vac, by = 'date') %>%
-  select(-c(location, iso_code, total_vaccinations, people_vaccinated, people_fully_vaccinated, daily_vaccinations_raw, daily_vaccinations, daily_vaccinations_per_million))
 #Getting USA's vaccine data
 usa_vac <- vaccine %>%
   filter(location == 'United States') %>%
-  mutate(date = ymd(date))
-#Adding USA vaccine to us_totals
-us_totals <- us_totals %>%
-  left_join(usa_vac, by = c('date')) %>%
-  select(-c(location, iso_code, total_vaccinations, people_vaccinated, people_fully_vaccinated, daily_vaccinations_raw, daily_vaccinations, daily_vaccinations_per_million))
+  mutate(date = ymd(date), new_total_vaccinations = total_vaccinations - lag(total_vaccinations))
 ```
 
 # Visualizing and Analyzing the Data
@@ -156,14 +148,18 @@ sweden %>%
   geom_line(aes(x = date, y = cases_per_mil, color = 'cases')) +
   scale_y_log10() +
   labs(title = 'Swedish Cases per Million and Deaths per Million', 
-       x = 'Date', y = 'Deaths and Cases per Million') 
+       x = 'Date', y = 'Deaths and Cases per Million') +
+  scale_x_date(date_labels = '%m-%Y', date_breaks = '2 month') +
+  theme(axis.text.x = element_text(angle = 330))
 sweden %>%
   filter(new_cases_per_mil > 0 & new_deaths_per_mil > 0) %>%
   ggplot() +
   geom_point(aes(x = date, y = new_cases_per_mil, color = 'Cases')) +
   geom_point(aes(x = date, y = new_deaths_per_mil, color = 'Deaths')) + 
   scale_y_log10() + 
-  labs(title = 'Swedish New Cases and New Deaths per Million', x = 'Date', y = 'New Cases and Deaths per Mil Scaled by Log 10')
+  labs(title = 'Swedish New Cases and New Deaths per Million', x = 'Date', y = 'New Cases and Deaths per Mil Scaled by Log 10') +
+  scale_x_date(date_labels = '%m-%Y', date_breaks = '2 month') +
+  theme(axis.text.x = element_text(angle = 330))
 
 #US cases and deaths per million
 us_totals %>%
@@ -172,14 +168,18 @@ us_totals %>%
   geom_line(aes(x = date, y = cases_per_mil, color = 'cases')) +
   scale_y_log10() +
   labs(title = 'Cases per Million and Deaths per Million in United States', 
-       x = 'Date', y = 'Deaths and Cases per Million') 
+       x = 'Date', y = 'Deaths and Cases per Million')  +
+  scale_x_date(date_labels = '%m-%Y', date_breaks = '2 month') +
+  theme(axis.text.x = element_text(angle = 330))
 #US new cases and new deaths per million
 us_totals %>%
   ggplot() +
   geom_point(aes(x = date, y = new_cases_per_mil, color = 'Cases')) +
   geom_point(aes(x = date, y = new_deaths_per_mil, color = 'Deaths')) +
   scale_y_log10() + 
-  labs(title = 'United States New Cases and New Deaths per Million', x = 'Date', y = 'New Cases and Deaths per Mil Scaled by Log 10')
+  labs(title = 'United States New Cases and New Deaths per Million', x = 'Date', y = 'New Cases and Deaths per Mil Scaled by Log 10') +
+  scale_x_date(date_labels = '%m-%Y', date_breaks = '2 month') +
+  theme(axis.text.x = element_text(angle = 330))
 #Comparison of Swedish and US  cases and deaths per million
 ggplot() +
   geom_line(data = sweden, aes(x = date, y = deaths_per_mil, color = 'Swedish Deaths per Mil')) +
@@ -187,8 +187,9 @@ ggplot() +
   geom_line(data = us_totals, aes(x = date, y = cases_per_mil, color = 'US Cases per Mil')) +
   geom_line(data = us_totals, aes(x = date, y = deaths_per_mil, color = 'US Deaths per Mil')) +
   scale_y_log10() + 
-  labs(title = 'Swedish and United States Cases and Deaths per Million',  x = 'Date', y = 'Value per Million Scaled by Log Base 10')
-
+  labs(title = 'Swedish and United States Cases and Deaths per Million',  x = 'Date', y = 'Value per Million Scaled by Log Base 10') +
+  scale_x_date(date_labels = '%m-%Y', date_breaks = '2 month') +
+  theme(axis.text.x = element_text(angle = 330))
 #Graph showing new cases and deaths (per million) in US and Sweden
 ggplot() +
   geom_point(data = sweden %>% filter(new_deaths_per_mil > 0), aes(x = date, y = new_deaths_per_mil, color = 'Swedish New Deaths'), alpha = 0.4) +
@@ -196,7 +197,9 @@ ggplot() +
   geom_point(data = us_totals, aes(x = date, y = new_cases_per_mil, color = 'US New Cases'), alpha = 0.4) +
   geom_point(data = us_totals, aes(x = date, y = new_deaths_per_mil, color = 'US New Deaths'), alpha = 0.4) +
   scale_y_log10() +
-  labs(title = 'Swedish and United States Cases New Cases and New Deaths',  x = 'Date', y = 'New Cases and Deaths per Mil Scaled by Log 10')
+  labs(title = 'Swedish and United States Cases New Cases and New Deaths',  x = 'Date', y = 'New Cases and Deaths per Mil Scaled by Log 10') +
+  scale_x_date(date_labels = '%m-%Y', date_breaks = '2 month') +
+  theme(axis.text.x = element_text(angle = 330))
 #Graph highlighting Sweden vaccinations
 sweden_vac %>%
   ggplot() + 
@@ -226,6 +229,13 @@ ggplot() +
 scale_x_date(date_labels = '%m-%Y', date_breaks = '1 month') +
   theme(axis.text.x = element_text(angle = 330)) + 
   labs(title = 'Sweden and USA Vaccine Data Per Hundred', x = 'Date', y = 'Count')
+#Graph of new vaccinations for USA
+usa_vac %>%
+  ggplot() +
+  geom_point(aes(x = date, y = new_total_vaccinations), na.rm = TRUE, color = 'dark blue') +
+  labs(x = 'Date', y = 'New Vaccinations', title = 'American New Vaccinations') + 
+  scale_x_date(date_labels = '%m-%Y', date_breaks = '1 month') +
+  theme(axis.text.x = element_text(angle = 330))
 ```
 
 # Modeling
